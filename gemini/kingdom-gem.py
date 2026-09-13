@@ -1,6 +1,5 @@
 import json
 import re
-
 from pathlib import Path
 
 # ============================================================
@@ -8,7 +7,7 @@ from pathlib import Path
 # ============================================================
 
 CHANNEL_URL = "https://www.youtube.com/@kingdomsoundministry/videos"
-OUTPUT_FILE = "kingdom_sound_checklist.md"
+OUTPUT_FILE = "kingdom_sound_notion_checklist.md"
 RAW_FILE = "kingdom_sound_raw.json"
 
 
@@ -17,12 +16,9 @@ RAW_FILE = "kingdom_sound_raw.json"
 # ============================================================
 
 def get_channel_videos():
-    """Fetches all video metadata in a single yt-dlp call directly via Python API.
-
-    Avoids spawning N subprocesses and making N individual network requests.
-    """
+    """Fetches all video metadata in a single yt-dlp call directly via Python API."""
     print("\n========================================")
-    print(" Kingdom Sound Fast Scanner")
+    print(" Kingdom Sound Fast Scanner (Notion Format)")
     print("========================================\n")
     print("Scanning Kingdom Sound channel metadata...")
 
@@ -33,9 +29,8 @@ def get_channel_videos():
         print("Install it via: pip install yt-dlp")
         return []
 
-    # Extract all metadata in 1 request without downloading video files
     ydl_opts = {
-        "extract_flat": "in_playlist",  # Extract playlist metadata quickly
+        "extract_flat": "in_playlist",
         "skip_download": True,
         "ignoreerrors": True,
         "quiet": True,
@@ -49,7 +44,6 @@ def get_channel_videos():
         print("Failed to fetch channel data.")
         return []
 
-    # Handle single playlist/channel layout
     entries = result.get("entries", [])
     videos = [e for e in entries if e]
 
@@ -177,28 +171,38 @@ def normalize(text):
 
 
 # ============================================================
-# CREATE CHECKLIST
+# CREATE NOTION-FRIENDLY CHECKLIST
 # ============================================================
 
-def create_checklist(songs):
+def create_notion_checklist(songs):
     lines = [
         "# 🎵 Kingdom Sound — Listening Checklist",
         "",
-        f"**Total unique songs: {len(songs)}**",
-        "",
-        "Format: **Song — Singer (Original Singer)**",
+        f"**Total unique songs:** {len(songs)}",
         "",
         "---",
         "",
     ]
 
-    songs = sorted(songs, key=lambda x: normalize(x["song"]))
+    # Sort by upload date (Newest First)
+    songs = sorted(
+        songs,
+        key=lambda x: x.get("upload_date") or "",
+        reverse=True
+    )
 
     for song in songs:
+        raw_date = song.get("upload_date")
+        
+        if raw_date and len(raw_date) == 8:
+            date_str = f" • *{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}*"
+        else:
+            date_str = ""
+
+        # Notion-friendly single-line checkbox layout
         lines.append(
-            f"- [ ] **{song['song']}** — {song['singer']} ({song['original_singer']})"
+            f"- [ ] [{song['song']}]({song['url']}) — **{song['singer']}** *(Orig: {song['original_singer']})*{date_str}"
         )
-        lines.append(f"  - [YouTube]({song['url']})\n")
 
     Path(OUTPUT_FILE).write_text("\n".join(lines), encoding="utf-8")
 
@@ -222,8 +226,8 @@ def main():
             continue
 
         title = video.get("title", "")
-        # Flat extraction gets description if available; defaults to title parsing
         description = video.get("description", "")
+        upload_date = video.get("upload_date") or video.get("timestamp")
 
         data = extract_song_data(title, description)
         data["url"] = (
@@ -232,6 +236,7 @@ def main():
             else f"https://www.youtube.com/watch?v={video_id}"
         )
         data["youtube_title"] = title
+        data["upload_date"] = str(upload_date) if upload_date else ""
         songs.append(data)
 
     # Save raw data
@@ -251,16 +256,12 @@ def main():
             unique[key] = song
 
     unique_songs = list(unique.values())
-    create_checklist(unique_songs)
+    create_notion_checklist(unique_songs)
 
     print("========================================")
     print(" DONE!")
     print("========================================")
-    print(f"Videos scanned: {len(videos)}")
-    print(f"Songs found:    {len(songs)}")
-    print(f"Unique songs:   {len(unique_songs)}")
-    print(f"Checklist file: {OUTPUT_FILE}")
-    print(f"Raw data file:  {RAW_FILE}\n")
+    print(f"Checklist file: {OUTPUT_FILE}\n")
 
 
 if __name__ == "__main__":
